@@ -1,0 +1,7 @@
+flask
+zappa
+# fastapi
+# uvicorn[standard]
+boto3
+openai
+openai-whisper

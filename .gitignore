@@ -1,0 +1,9 @@
+assets
+src
+private.key
+venv
+venvwin
+.vscode
+__pycache__
+prod.config.json
+zappa_settings.json
