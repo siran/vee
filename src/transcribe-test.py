@@ -1,10 +1,8 @@
 import base64
-
 import whisper
 
 import os
-timestamp="1681410347459064600"
-fname = f"{timestamp}.b64.m4a"
+fname = "test.m4a"
 
 # transcribing
 model = whisper.load_model("base")

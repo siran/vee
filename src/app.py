@@ -8,6 +8,7 @@ import time
 import urllib.parse
 from textwrap import dedent
 
+import boto3
 import openai
 import whisper
 timer.toc('whisper')
@@ -19,8 +20,17 @@ timer.toc('flask')
 model = whisper.load_model("base")
 timer.toc('model base')
 
-with open('private.key') as fp:
-    openai.api_key = fp.read()
+def get_private_key():
+    ssm = boto3.client("ssm")
+    keyname = "/openai/key"
+    value = ssm.get_parameter(
+        Name=keyname,
+        WithDecryption=True
+    )
+
+    return value.get("Value")
+
+openai.api_key = get_private_key()
 
 @app.route("/", methods = ['POST', 'GET'])
 def root():
