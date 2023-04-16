@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>My One-Page Website</title>
+	<style>
+		/* Basic styles for the page */
+		body {
+			font-family: sans-serif;
+			margin: 0;
+			padding: 0;
+		}
+		header {
+			background-color: #333;
+			color: #fff;
+			padding: 20px;
+		}
+		h1 {
+			margin: 0;
+		}
+		main {
+			padding: 20px;
+		}
+		section {
+			margin-bottom: 20px;
+			padding: 10px;
+			background-color: #f2f2f2;
+			border: 1px solid #ccc;
+			border-radius: 5px;
+		}
+		nav {
+			background-color: #333;
+			color: #fff;
+			padding: 10px;
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			z-index: 1;
+		}
+		nav ul {
+			list-style: none;
+			margin: 0;
+			padding: 0;
+			text-align: center;
+		}
+		nav ul li {
+			display: inline-block;
+			margin-right: 10px;
+		}
+		nav ul li a {
+			color: #fff;
+			text-decoration: none;
+			padding: 5px;
+		}
+		nav ul li a:hover {
+			background-color: #555;
+		}
+		/* Style for the "back to top" button */
+		#back-to-top {
+			display: none;
+			position: fixed;
+			bottom: 20px;
+			right: 20px;
+			padding: 10px;
+			background-color: #333;
+			color: #fff;
+			cursor: pointer;
+		}
+		#back-to-top:hover {
+			background-color: #555;
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<h1>My One-Page Website</h1>
+	</header>
+	<nav>
+		<ul>
+			<li><a href="#section1">Section 1</a></li>
+			<li><a href="#section2">Section 2</a></li>
+			<li><a href="#section3">Section 3</a></li>
+		</ul>
+	</nav>
+	<main>
+		<section id="section1">
+			<h2>Section 1</h2>
+			<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse vel aliquet erat. Proin vestibulum mauris vel erat blandit, nec aliquam dolor bibendum. Donec efficitur, urna nec tincidunt commodo, odio libero laoreet velit, quis vulputate mi odio in sapien. </p>
+		</section>
+		<section id="section2">
+			<h2>Section 2</h2>
+			<p>Integer sit amet sodales nibh. Etiam at enim eu lectus sagittis fermentum. Maecenas rutrum convallis ante vel malesuada. Morbi dictum, eros ac iaculis convallis, sapien felis semper urna, nec elementum dolor risus quis nibh. </p>
+		</section>
+		<section id="section3"></section>
+		<h2>Section 3</h2>
+		<p>Nulla posuere sapien eu ligula rutrum, ut vulputate massa pellentesque. Nullam posuere orci nulla, vel fringilla eros vulputate eu. Curabitur in velit efficitur, vehicula dolor nec, ultrices metus. Nam malesuada commodo orci id cursus. </p>
+	</section>
+	</main>
+	<footer>
+		<p>Copyright &copy; 2023 My One-Page Website</p>
+	</footer>
+	<script>
+		// JavaScript code for the "back to top" button
+		window.addEventListener('scroll', function() {
+			var button = document.getElementById('back-to-top');
+			if (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) {
+				button.style.display = "block";
+			} else {
+				button.style.display = "none";
+			}
+		});
+		document.getElementById('back-to-top').addEventListener('click', function() {
+			document.body.scrollTop = 0;
+			document.documentElement.scrollTop = 0;
+		});
+	</script>
+	<button id="back-to-top">Back to Top</button>
+	</body>
+	</html>
