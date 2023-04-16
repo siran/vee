@@ -1,0 +1,11 @@
+[Unit]
+Description=AI Keep Alive
+After=multi-user.target
+
+[Service]
+User=ubuntu
+ExecStart=/usr/bin/python3 /home/ubuntu/repos/vee/src/app.py
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
