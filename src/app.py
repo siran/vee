@@ -107,10 +107,27 @@ def root():
             transcription_text = transcription["text"]
             timer.toc('transc end')
 
+            # determine language
+            timer.tic('lang')
+            prompt = f"Please in one word specify the language of this message: {transcription_text}"
+
+            messages = [
+                {"role": "system", "content": "Reply in only one Enlish word"},
+                {"role": "user", "content": prompt},
+            ]
+            r = openai.ChatCompletion.create(
+                # model="gpt-3.5-turbo",
+                model="gpt-3.5-turbo-0301",
+                messages=messages,
+                temperature=0,
+            )
+            language = urllib.parse.quote(r['choices'][0]['message']['content'])
+            timer.toc('lang end')
+
 
             # summarizing
             timer.tic('summ')
-            prompt = f"Please use the same language as the message to summarize in six words or less: {transcription_text}"
+            prompt = f"Summarize in six words or less using language {language}: {transcription_text}"
 
             messages = [
                 {"role": "system", "content": prompt},
@@ -125,7 +142,7 @@ def root():
             subject = urllib.parse.quote(r['choices'][0]['message']['content'])
             timer.toc('summ end')
 
-            prompt = f"Please write a short joke about the following message: {transcription_text}."
+            prompt = f"Please write a short joke about the following message in language {language}: {transcription_text}."
 
             timer.tic('summ')
             messages.extend([
