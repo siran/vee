@@ -6,6 +6,10 @@ After=multi-user.target
 User=ubuntu
 ExecStart=/usr/bin/python3 /home/ubuntu/repos/vee/src/app.py
 Type=simple
+WorkingDirectory=/home/ubuntu/repos/vee/src/
+SyslogIdentifier=vee
+StandardOutput=syslog
+StandardError=syslog
 
 [Install]
 WantedBy=multi-user.target
