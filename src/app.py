@@ -32,10 +32,18 @@ def root():
     """Handle requests to /. Check if there is POST data or information and routes accordingly."""
 
     content_type = request.headers.get('Content-Type')
-    if (content_type == 'application/json'):
+    if not (content_type == 'application/json'):
+        return 'No JSON payload provided'
+
         # we got some JSON
         payload = request.json
-        fname_content = save_json_payload(payload)
+        # fname_content = save_json_payload(payload)
+
+        if not (content_b64 := request.json.get('content')):
+            return 'No content was provided'
+
+        content = base64.b64decode(content_b64)
+        fname_content = save_content(content)
 
         if not is_audio(fname_content):
             return 'Sorry, only processing audio for the moment'
