@@ -35,40 +35,40 @@ def root():
     if not (content_type == 'application/json'):
         return 'No JSON payload provided'
 
-        # we got some JSON
-        payload = request.json
-        # fname_content = save_json_payload(payload)
+    # we got some JSON
+    payload = request.json
+    # fname_content = save_json_payload(payload)
 
-        if not (content_b64 := request.json.get('content')):
-            return 'No content was provided'
+    if not (content_b64 := request.json.get('content')):
+        return 'No content was provided'
 
-        content = base64.b64decode(content_b64)
-        fname_content = save_content(content)
+    content = base64.b64decode(content_b64)
+    fname_content = save_content(content)
 
-        if not is_audio(fname_content):
-            return 'Sorry, only processing audio for the moment'
+    if not is_audio(fname_content):
+        return 'Sorry, only processing audio for the moment'
 
-        transcription_text = transcribe_audio(fname_content)
-        print(f"{transcription_text=}")
+    transcription_text = transcribe_audio(fname_content)
+    print(f"{transcription_text=}")
 
-        if payload.get('type') == 'chat':
-            return reply_chat(transcription_text)
+    if payload.get('type') == 'chat':
+        return reply_chat(transcription_text)
 
-        summary_eml = dedent(
-            f"""
-            # transcription_text
-            {transcription_text}
+    summary_eml = dedent(
+        f"""
+        # transcription_text
+        {transcription_text}
 
-            ---
-            # fname
-            {fname_content=}
-            """)
+        ---
+        # fname
+        {fname_content=}
+        """)
 
-        summary_eml_fname = f"{fname_content}.md"
-        with open(summary_eml_fname, 'w') as fp:
-            fp.write(summary_eml)
+    summary_eml_fname = f"{fname_content}.md"
+    with open(summary_eml_fname, 'w') as fp:
+        fp.write(summary_eml)
 
-        return get_email_url(transcription_text)
+    return get_email_url(transcription_text)
 
     # return 'googlegmail:///co?subject=test&body=test&to=anmichel@gmail.com'
     # return "I saved the content you shared. Please, tell me your instructions."
