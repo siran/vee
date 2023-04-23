@@ -110,11 +110,11 @@ def get_email_url(transcription_text):
         command = None
     timer.tic('end command')
 
-    print(command)
-    print(recipient)
-    print(subject)
-    print(transcription_text)
-    print(joke)
+    print(f'{command=}')
+    print(f'{recipient=}')
+    print(f'{subject=}')
+    print(f'{joke=}')
+    # print(transcription_text)
 
     email='anmichel@gmail.com'
     # subject= ''
@@ -208,57 +208,79 @@ def save_content(content):
 
     return fname_content
 
+def fuzzy_intent(intent_a, intent_b):
+    """Uses LLM to try to derminar if A ~ B """
+
+    prompt = f"Please answer YES or NO if these messages have the same intent? Message 1: {intent_a}; Message 2: {intent_b}"
+    response = prompt_llm(prompt)
+
+    if "yes" in response.lower():
+        return True
+    elif "no" in response.lower():
+        return False
+
+    return None
+
 def reply_chat(transcription_text):
-        print(transcription_text)
+
         fname = 'messages.jsonl'
         fpmode = "a+"
-        if "clear history" in transcription_text.lower():
+
+        if fuzzy_intent(transcription_text, "clear message history"):
             uuidstr = str(uuid.uuid1())
             shutil.copyfile(fname, f"{fname}.{uuidstr}.memory")
             # mode = "w"
             # old_memory = fp.read()
+            os.unlink(fname)
             return "memory cleared"
 
 
-        timer.tic('summ')
-        print(os.getcwd())
-        # subprocess.run(['whoami'])
-        # subprocess.run(['pwd'])
-        with open(fname, 'r+', encoding='utf-8') as fp:
-            messages = fp.read()
+        timer.tic('reading old messages')
+        with open(fname, 'a+', encoding='utf-8') as fp:
+            fp.seek(0)
+            messages_txt = fp.read()
 
-        print(messages)
-
-        messages = json.loads(f"[{messages[:-1]}]")
-
-
+        messages = json.loads(f"[{messages_txt[:-1]}]")
         try:
-            prompt = transcription_text
-            response = prompt_llm(prompt, system_prompt='', messages=messages)
-            response = r['choices'][0]['message']['content']
+            response = prompt_llm(prompt=transcription_text, system_prompt='', messages=messages)
         except Exception as error:
             traceback.print_exc()
 
             if error.code == "context_length_exceeded":
-                messages = summarize_messages(messages)
+                # messages = summarize_messages(messages)
+
+                return 'Please clear messages'
+
+            return 'An error occurred, please try again later'
 
         # remove first sentence
         sentences = response.split('.')
         new_response = []
         unwanted_phrases = [
-            "language model",
             "openai",
-            "programmed"
+            "language model",
+            "como una inteligencia articial",
+            "estoy programada para",
+            "no tengo emociones como los seres humanos",
+
+            "have no feelings",
+            "am programmed",
+            "m programmed",
+            "don't have emotions",
+            "do not have emotions",
+            # "programmed"
         ]
         for sentence in sentences:
             for phrase in unwanted_phrases:
-                if phrase.lower() in sentence:
-                    print(f"phrase discarded {phrase=}")
-                    continue
+                if phrase.lower() in sentence.lower():
+                    print(f"phrase discarded {sentence=}")
+                    break
+            else:
+                new_response.append(sentence)
+                print(f"sentence accepted {sentence=}")
 
-            new_response.append(sentence)
 
-        response = ".".join(new_response)
+        response = ".".join(new_response) or ' - '
 
         messages.append({"role": "assistant", "content": response})
         with open(fname, mode=fpmode, encoding='utf-8') as fp:
