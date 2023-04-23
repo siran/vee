@@ -1,211 +1,293 @@
+import json
 import os
-import sys
-from TimerNs import TimerNs
-timer = TimerNs()
-
-timer.toc('start')
+import re
+import traceback
+import uuid
 import base64
 import shutil
 import time
 import urllib.parse
 from textwrap import dedent
+import pathlib
 
-import boto3
 import openai
 import whisper
-timer.toc('whisper')
-
 from flask import Flask, request
+
+from TimerNs import TimerNs
+import auth
+
+auth.auth_opeai()
+
 app = Flask(__name__)
-timer.toc('flask')
-
 model = whisper.load_model("base")
-timer.toc('model base')
+timer = TimerNs()
 
-default_html = """<!DOCTYPE html>
-<html>
-<head>
-<style>
-body{font-family:sans-serif;}
-h1,h2{margin:0;}
-section{margin:20px 0;}
-a{color:#06c;text-decoration:none;}
-#top{position:fixed;top:5px;right:5px;font-size:14px;}
-</style>
-</head>
-<body>
-<h1>VeeMail.me</h1>
-<section>
-    <h2>AI-Powered, Voice-Email integration</h2>
-    <p>Just tap and talk. Meta intelligence at its finest.</p>
-</section>
-<section>
-    <h2>Smart Compose & Reply</h2>
-    <p>Auto subject line summarizes your voice-email. And more.</p>
-</section>
-<section>
-    <h2>Free and open-source</h2>
-    <p>It's free and open source. This means transparence, improved security and no ads. Ever. (Unless you want them :)</p>
-</section>
-<footer>
-    <p>E: contact@veemail.me</p>
-    <p>T: @veemailme</p>
-    <p>Copyright &copy; 2023</p>
-</footer>
-<a id="top" href="#">&#x2191; Top</a>
-</body>
-</html>
-"""
-
-default_html =  "Content not supported yet."
-
-def get_private_key():
-    ssm = boto3.client("ssm")
-    keyname = "/openai/key"
-
-    value = ssm.get_parameter(
-        Name=keyname,
-        WithDecryption=True,
-    )
-
-    return str(value['Parameter']['Value'])
-
-private_key = get_private_key()
-openai.api_key = private_key
-os.environ["OPENAI_API_KEY"] = private_key
+# configuration variables
+path_content_b64 = "assets"
+audio_file_extensions = ['m4a', 'mp4', 'ogg']
 
 @app.route("/", methods = ['POST', 'GET'])
 def root():
-    # print("ok")
-    # print(request.headers)
-    timestamp = str(time.time_ns())
+    """Handle requests to /. Check if there is POST data or information and routes accordingly."""
+
     content_type = request.headers.get('Content-Type')
-    # print(f'{content_type=}')
     if (content_type == 'application/json'):
-        rjson = request.json
-        if content_b64 := rjson.get('content'):
-            fname_timestamp = f"/home/ubuntu/repos/vee/src/assets/{timestamp}.b64"
-            with open(fname_timestamp, 'w') as fp:
-                fp.write(content_b64)
+        # we got some JSON
+        payload = request.json
+        fname_content = save_json_payload(payload)
 
-            content = base64.b64decode(content_b64)
-            fname = f"{fname_timestamp}.decoded"
-            with open(fname, 'bw') as fp:
-                fp.write(content)
+        if not is_audio(fname_content):
+            return 'Sorry, only processing audio for the moment'
 
-            # saving with valid extension
-            valid_extensions = ['m4a', 'mp4', 'ogg']
-            for ext in valid_extensions:
-                if ext in str(content[0:100]).lower():
-                    fname_content = f"{fname_timestamp}.{ext}"
-                    shutil.copy(fname, fname_content)
-                    break
+        transcription_text = transcribe_audio(fname_content)
+        print(f"{transcription_text=}")
 
-            # transcribing
-            timer.tic('transc')
-            transcription = model.transcribe(fname_content)
-            transcription_text = transcription["text"]
-            timer.toc('transc end')
+        if payload.get('type') == 'chat':
+            return reply_chat(transcription_text)
 
-            # determine language
-            timer.tic('lang')
-            prompt = f"Please in one word specify the language of this message: {transcription_text}"
+        summary_eml = dedent(
+            f"""
+            # transcription_text
+            {transcription_text}
 
-            messages = [
-                {"role": "system", "content": "Reply in only one Enlish word"},
-                {"role": "user", "content": prompt},
-            ]
-            r = openai.ChatCompletion.create(
-                # model="gpt-3.5-turbo",
-                model="gpt-3.5-turbo-0301",
-                messages=messages,
-                temperature=0,
-            )
-            language = urllib.parse.quote(r['choices'][0]['message']['content'])
-            timer.toc('lang end')
+            ---
+            # fname
+            {fname_content=}
+            """)
+
+        summary_eml_fname = f"{fname_content}.md"
+        with open(summary_eml_fname, 'w') as fp:
+            fp.write(summary_eml)
+
+        return get_email_url(transcription_text)
+
+    # return 'googlegmail:///co?subject=test&body=test&to=anmichel@gmail.com'
+    # return "I saved the content you shared. Please, tell me your instructions."
+
+    # Default response
+    return 'Hi! Vee here.'
+
+def save_json_payload(payload):
+    """Inspects payload and save files as per configuration variables"""
 
 
-            # summarizing
-            timer.tic('summ')
-            prompt = f"Summarize in six words or less using language {language}: {transcription_text}"
+    rjson = payload
+    try:
+        content = base64.b64decode(rjson.get('content'))
+    except:
+        return False
 
-            messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": prompt},
-            ]
-            r = openai.ChatCompletion.create(
-                # model="gpt-3.5-turbo",
-                model="gpt-3.5-turbo-0301",
-                messages=messages,
-                temperature=0,
-            )
-            subject = urllib.parse.quote(r['choices'][0]['message']['content'])
-            timer.toc('summ end')
+    return save_content(content)
 
-            prompt = f"Please write a short joke about the following message in language {language}: {transcription_text}."
-
-            timer.tic('summ')
-            messages.extend([
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": prompt},
-            ])
-
-            r = openai.ChatCompletion.create(
-                # model="gpt-3.5-turbo",
-                model="gpt-3.5-turbo-0301",
-                messages=messages,
-                temperature=1,
-            )
-            joke = r['choices'][0]['message']['content']
-            timer.toc('summ end')
+def get_email_url(transcription_text):
+    # determine language
+    language = get_language(transcription_text)
 
 
-            print(subject)
-            print(transcription_text)
-            print(joke)
+    # summarizing
+    timer.tic('summ')
+    prompt = f"Summarize in six words or less using language {language}: {transcription_text}"
+    subject = prompt_llm(prompt)
+    timer.toc('summ end')
 
-            email='anmichel@gmail.com'
-            # subject= ''
-            body=urllib.parse.quote(dedent(
-                f"""{transcription_text}
+    timer.tic('joke')
+    prompt = f"Please write a short joke about the following message in language {language}: {transcription_text}."
+    joke = prompt_llm(prompt)
+    timer.tic('joke end')
+
+    timer.tic('recipient')
+    prompt = f"Please determine name of recipient from the following message. If you can't determine the recipient please reply with NO: {transcription_text}."
+    recipient = prompt_llm(prompt)
+    if "no" in recipient.lower():
+        recipient = None
+    timer.tic('end recipient')
+
+    timer.tic('action')
+    prompt = f"Please determine if the user is giving a command from this message. If you can't determine the recipient please reply with NO: {transcription_text}."
+    command = prompt_llm(prompt)
+    if "no" in command.lower():
+        command = None
+    timer.tic('end command')
+
+    print(command)
+    print(recipient)
+    print(subject)
+    print(transcription_text)
+    print(joke)
+
+    email='anmichel@gmail.com'
+    # subject= ''
+    body=urllib.parse.quote(dedent(
+        f"""{transcription_text}
 
 
-                ---
-                This email was generated by VeeMail, an AI-powered voice-email integration (and more).
-                W: https://veemail.me
+        ---
+        via veemail.me
 
-                AI-generated joke: {joke}
-                """))
+        ... {joke}
+        """))
 
-            # 'to' can be inferred from the audio content!
-            # ret = f'googlegmail:///co?subject={subject}&body={body}&to={email}
+    # 'to' can be inferred from the audio content!
+    # ret = f'googlegmail:///co?subject={subject}&body={body}&to={email}
 
-            ret = f'googlegmail:///co?subject={subject}&body={body}'
+    # preparing gmail url scheme
+    # email_url = urllib.parse.quote(f'googlegmail:///co?subject={subject}&body={body}&to={recipient}')
+    email_url = f'googlegmail:///co?subject={urllib.parse.quote(subject)}&body={body}'
 
-            summary_eml = dedent(
-                f"""
-                {body}
+    return email_url
 
-                ---
-                # Audio Timestamp
-                {timestamp}
-                """)
+def get_language(transcription_text):
+    """Returns transcript's English language name"""
 
-            summary_eml_fname = f"/home/ubuntu/repos/vee/src/assets/{timestamp}.eml.md"
-            with open(summary_eml_fname, 'w') as fp:
-                fp.write(summary_eml)
+    timer.tic('lang')
+    prompt = f"Please in one word specify the language of this message: {transcription_text}"
 
-            return ret
+    language = prompt_llm(prompt)
+    timer.toc('lang end')
+    return language
 
-            # return 'googlegmail:///co?subject=test&body=test&to=anmichel@gmail.com'
-            # return "I saved the content you shared. Please, tell me your instructions."
+def prompt_llm(prompt, system_prompt=None, messages=None):
+    timer.tic('prompt start')
 
-        return 'Hi! Vee here.'
+    system_prompt = system_prompt or prompt
+    messages = messages or []
 
-        # print(rjson)
+    if system_prompt != '':
+        messages.extend([
+            {"role": "system", "content": system_prompt},
+        ])
+
+    messages.extend([
+        {"role": "user", "content": prompt},
+    ])
+
+    r = openai.ChatCompletion.create(
+        # model="gpt-3.5-turbo",
+        model="gpt-3.5-turbo-0301",
+        messages=messages,
+        temperature=0,
+    )
+    response = r['choices'][0]['message']['content']
+
+    timer.toc('prompt end')
+
+    return response
+
+def transcribe_audio(fname_content):
+    timer.tic('transc')
+    transcription = model.transcribe(fname_content)
+    transcription_text = transcription["text"]
+    timer.toc('transc end')
+    return transcription_text
+
+def is_audio(fname):
+    extension = pathlib.Path(fname).suffix
+    return extension[1:] in audio_file_extensions
+
+def get_content_type(content):
+    content100 = content[0:100]
+    valid_extensions = audio_file_extensions
+    for ext in valid_extensions:
+        if ext in str(content100).lower():
+            break
     else:
-        # static content
-        return default_html
+        ext = 'b64'
+
+    return ext
+
+def save_content(content):
+    """ Saves content with a valid extension if possible """
+
+    content_id = str(time.time_ns())
+    ext = get_content_type(content)
+    fname_content = os.path.join(path_content_b64, f"{content_id}.{ext}")
+    # renaming with valid extension
+    with open(fname_content, 'bw') as fp:
+        fp.write(content)
+
+    return fname_content
+
+def reply_chat(transcription_text):
+        print(transcription_text)
+        fname = 'messages.jsonl'
+        fpmode = "a+"
+        if "clear history" in transcription_text.lower():
+            uuidstr = str(uuid.uuid1())
+            shutil.copyfile(fname, f"{fname}.{uuidstr}.memory")
+            # mode = "w"
+            # old_memory = fp.read()
+            return "memory cleared"
+
+
+        timer.tic('summ')
+        print(os.getcwd())
+        # subprocess.run(['whoami'])
+        # subprocess.run(['pwd'])
+        with open(fname, 'r+', encoding='utf-8') as fp:
+            messages = fp.read()
+
+        print(messages)
+
+        messages = json.loads(f"[{messages[:-1]}]")
+
+
+        try:
+            prompt = transcription_text
+            response = prompt_llm(prompt, system_prompt='', messages=messages)
+            response = r['choices'][0]['message']['content']
+        except Exception as error:
+            traceback.print_exc()
+
+            if error.code == "context_length_exceeded":
+                messages = summarize_messages(messages)
+
+        # remove first sentence
+        sentences = response.split('.')
+        new_response = []
+        unwanted_phrases = [
+            "language model",
+            "openai",
+            "programmed"
+        ]
+        for sentence in sentences:
+            for phrase in unwanted_phrases:
+                if phrase.lower() in sentence:
+                    print(f"phrase discarded {phrase=}")
+                    continue
+
+            new_response.append(sentence)
+
+        response = ".".join(new_response)
+
+        messages.append({"role": "assistant", "content": response})
+        with open(fname, mode=fpmode, encoding='utf-8') as fp:
+            for m in messages[-2:]:
+                messages = fp.write('\n' + json.dumps(m) + ',')
+            # [
+            #     {"role": "user", "content": transcription_text},
+            #     {"role": "assistant", "content": transcription_text},
+            # ]
+        timer.toc('summ end')
+
+        return response
+
+def summarize_messages(messages):
+    parts = [messages[0:len(messages)//2], messages[len(messages)//2+1:]]
+
+    new_messages = []
+    for part in parts:
+        message = [{"role": "user", "content": f"Please summarize this conversation. Keep the same JSON format. Reply only with a valid JSON. Thanks: {json.dumps(part)}"}]
+        r = openai.ChatCompletion.create(
+            # model="gpt-3.5-turbo",
+            model="gpt-3.5-turbo-0301",
+            messages=message,
+            temperature=0,
+        )
+        response = r['choices'][0]['message']['content']
+        new_messages.extend(json.loads(response))
+
+    return new_messages
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=4200, debug=True)
