@@ -7,3 +7,4 @@ venvwin
 __pycache__
 prod.config.json
 zappa_settings.json
+*.code-workspace
