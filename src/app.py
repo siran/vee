@@ -17,7 +17,7 @@ def root():
     payload = request.json
 
     if not (content_b64 := payload.get('content')):
-        return 'No content was provided'
+        return Vee.greet_request(payload)
 
     content = base64.b64decode(content_b64)
     fname_content = Vee.save_content(content)

@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import base64
 import json
-import math
 import os
 import re
 import shutil
@@ -15,30 +15,182 @@ import urllib
 # from TimerNs import TimerNs
 import whisper
 
-import auth
+import identity
 
 @dataclass
-class VeeAI:
-    """Contral control structure for Vees behavior"""
-
-    path_content_b64 = "assets"
-    audio_file_extensions = ['m4a', 'mp4', 'ogg']
-    fname_messages = 'messages.jsonl'
-
-    fname_content = None
-
-    whisper_model = None
-
-    messages = []
+class Device:
+    messages : list[dict] = field(default_factory=list[dict])
     # messages = [
     #     {"role": "system", "content": system_prompt},
     #     {"role": "user", "content": user_prompt},
     #     {"role": "assistant", "content": assistant_prompt},
     # ]
+    name = None
+    device_name = None
+    device_password = None
+    device_authenticated= False
+
+
+@dataclass
+class VeeAI:
+    """Contral control structure for Vees behavior"""
+
+    path_content_b64 = "src/assets"
+    path_devices = "src/devices"
+
+    audio_file_extensions = ['m4a', 'mp4', 'ogg']
+
+    device: Device = None
+
+    fname_messages = 'messages.jsonl'
+    fname_device_metadata = "device_info.json"
+
+    fname_content = None
+
+    whisper_model = None
+
     def __post_init__(self):
         # Set the API key
-        auth.auth_opeai()
+        identity.auth_opeai()
+        self.device = Device()
         self.whisper_model = whisper.load_model("base")
+
+    def greet_request(self, json_payload):
+        """Greets request"""
+
+
+        device_name = json_payload.get('deviceName')
+        inputb64 = json_payload.get('inputb64')
+        input = None
+        transcription_text = None
+        fname_input = None
+        prompt = None
+
+        if inputb64 and (input := base64.b64decode(inputb64)):
+            fname_input = self.save_content(input)
+
+        if fname_input and not self.is_audio(fname_input):
+            return 'Sorry, only processing audio for the moment'
+
+        if fname_input:
+            transcription_text = self.transcribe_audio(fname_input)
+            self.save_transcript(fname_input, transcription_text)
+            prompt = transcription_text
+
+
+        if not device_name and not prompt:
+            return "Hello, there. How can I help?"
+
+        if device_name and not prompt:
+            self.device.device_name = device_name
+            return self.greet_device(prompt)
+
+
+        intent = self.determine_intent(prompt)
+
+        create_archive = self.fuzzy_intent(
+            prompt,
+            "create or create an archive"
+        )
+
+        if create_archive:
+            self.create_archive()
+            return "OK, created archive. Thank you. Please set a password. Please command me like 'I want to create a password' or anything of the sort."
+
+        return self.prompt_llm(prompt=prompt)
+
+    def determine_intent(self, prompt):
+        """Uses an LLM to return a JSON object with the 'intent' of User"""
+
+        system_prompt = "Please analize the following message and return a valid JSON object that summarizes the intent of the user. Neccesary keys are: action, action_body, recipients_of_action. You can include other keys relevant to the message."
+
+        json_intent = self.prompt_llm(
+            prompt=prompt,
+            system_prompt=system_prompt,
+        )
+        print(json_intent)
+        a=1
+
+    def create_archive(self):
+        """Makes archive path"""
+
+        if os.path.exists(self.device_path):
+            return False
+
+        os.mkdir(self.device_path)
+
+        return True
+
+    def get_device_path(self):
+        """Return path for device's assets"""
+
+        self.device_path = os.path.join(self.path_devices, self.device.device_name)
+        return self.device_path
+
+    def authenticate(self):
+        self.device.device_authenticated = True
+        return True
+
+    def greet_device(self, prompt):
+        """Checks if device has:
+            - an 'archive' (path in FS)
+                - a password
+            - just record a message
+        """
+
+        devicePath = self.get_device_path()
+
+        if not os.path.exists(devicePath):
+            msg = "Hi, you don't seem to have an archive. Do you want to create one or just record a message? Please let me know next what you want to do. I'll try to help."
+            return msg
+
+        if not self.device.device_password:
+            self.authenticate()
+
+        if not self.device.device_authenticated:
+            return "Sorry, you don't seem to be authenticated. Please try again."
+
+        # at this point:
+        #   devicePath exists
+        #   device is authenticated
+
+        self.get_device_info()
+
+        instructions = self.load_instructions()
+
+        params = dict(
+            prompt="Hi, I am user, please do as SYSTEM says. Thank you.",
+            system_prompt=instructions
+        )
+
+        return self.prompt_llm(**params)
+
+    def load_instructions(self):
+        with open('src/instructions_system_prompt.txt', 'r', encoding="utf-8") as fp:
+            instructions = fp.read()
+
+        return instructions
+
+    def get_device_info(self):
+        """Get metadata information stored from device in devices archive"""
+
+        llm_responses = []
+        metainfo_fname = os.path.join(self.device_path, self.fname_device_metadata)
+
+        if not os.path.exists(metainfo_fname):
+            return False
+
+        metainfo = json.load(open(metainfo_fname))
+
+        self.name = metainfo.get('name')
+        if not self.name:
+            prompt = f"Please reply with a simple and funny one word alias for this device_name or come up with an original one word alias: {self.device.device_name}"
+            self.name_autogenerated = self.prompt_llm(prompt=prompt)
+            self.name = self.alias_autogenerated
+
+            llm_responses.append(f"It appears you have not told me your name. For simplicity I'll call you {self.name}. Remember you can always instruct me to call you however you want." )
+
+        self.device.messages = metainfo.get('name')
 
     def get_content_type(self, content):
         content100 = content[0:100]
@@ -67,6 +219,9 @@ class VeeAI:
         return fname_content
 
     def is_audio(self, fname):
+        if not fname:
+            return False
+
         extension = pathlib.Path(fname).suffix
         return extension[1:] in self.audio_file_extensions
 
@@ -107,20 +262,9 @@ class VeeAI:
     def reply_chat(self, transcription_text):
 
         if self.fuzzy_intent(transcription_text, "clear message history"):
-            uuidstr = str(uuid.uuid1())
-            shutil.copyfile(self.fname_messages, f"{self.fname_messages}.{uuidstr}.memory")
-            # mode = "w"
-            # old_memory = fp.read()
-            os.unlink(self.fname_messages)
-            return "memory cleared"
+            return self.clear_messages()
 
-
-        ## timer.tic('reading old messages')
-        with open(self.fname_messages, 'a+', encoding='utf-8') as fp:
-            fp.seek(0)
-            messages_txt = fp.read()
-
-        messages = json.loads(f"[{messages_txt[:-1]}]")
+        messages = self.load_user_messages()
         try:
             response = self.prompt_llm(
                 prompt=transcription_text,
@@ -142,6 +286,28 @@ class VeeAI:
         self.update_messages(role=role, message=response, messages=messages)
 
         return response
+
+    def clear_messages(self):
+        uuidstr = str(uuid.uuid1())
+        shutil.copyfile(self.fname_messages, f"{self.fname_messages}.{uuidstr}.memory")
+            # mode = "w"
+            # old_memory = fp.read()
+        os.unlink(self.fname_messages)
+
+        return "Memory cleared."
+
+    def load_user_messages(self):
+        """Return JSON user's message history from self.fname_messages"""
+
+        if os.path.exists(self.fname_messages):
+            with open(self.fname_messages, 'a+', encoding='utf-8') as fp:
+                fp.seek(0)
+                self.device.messages = fp.read()
+                messages_txt = self.device.messages
+
+                self.device.messages = json.loads(f"[{messages_txt[:-1]}]")
+
+        return self.device.messages
 
     def get_email_url(self, transcription_text):
 
@@ -213,7 +379,7 @@ class VeeAI:
         system_prompt = system_prompt or prompt
         messages = messages or []
 
-        if system_prompt != '':
+        if system_prompt:
             messages.extend([
                 {"role": "system", "content": system_prompt},
             ])
